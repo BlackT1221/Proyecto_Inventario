@@ -29,3 +29,5 @@ async def prueba_de_estres():
         print("Error en operaciones mixtas.")
 
 asyncio.run(prueba_de_estres())
+
+# Se hacen las llamadas a las corrutinas creadas

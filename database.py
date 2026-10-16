@@ -74,3 +74,5 @@ async def eliminar_producto(codigo):
 
         await guardar_base_datos(nuevos_datos)
         return True
+
+# Cambio para la logica
