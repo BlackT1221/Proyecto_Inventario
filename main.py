@@ -1,33 +1,32 @@
-import asyncio
-# Importar funciones de otro archivo
-from database import crear_producto, obtener_producto, actualizar_stock, eliminar_producto
+from fastapi import FastAPI, HTTPException #importo mi framework
+from database import leer_base_datos, obtener_producto
 
-async def prueba_de_estres():
-    print("--- Iniciando prueba ---")
-    tareas_creacion = [
-        crear_producto("M001", "Llanta trasera", 10),
-        crear_producto("M002", "Filtro de aire", 25),
-        crear_producto("M003", "Bujía", 50),
-    ]
+# Inicializar la aplicación
+apiRest = FastAPI(
+    title="API inventarios SENA",
+    description="Mi primera API asíncrona",
+    version="1.0.0"
+)
 
+# Nuestro primer endpoint
+@apiRest.get("/") # Decorador -> Función que recibe como parámetro otra función
+async def ruta_principal():
+    return {"mensaje": "¡Bienvenido a mi primera API Rest!"}
+
+@apiRest.get("/estado")
+async def estado_servidor():
+    return {"status": "En línea", "servicios": "Operativos sin ningun invonveniente"}
+
+@apiRest.get("/productos")
+async def listar_productos():
+    datos = await leer_base_datos()
+    return {"cantidad": len(datos), "productos": datos}
+
+@apiRest.get("/productos/{codigo_producto}")
+async def buscar_un_producto(codigo_producto: str):
     try:
-        await asyncio.gather(*tareas_creacion)
-        print("Productos creados exitosamente")
-    except Exception as e:
-        print(f"Error de creación: {e}")
-
-    print("\nActualizar y consultar...")
-    try:
-        resultado = await asyncio.gather(
-            actualizar_stock(8, "M001"),
-            obtener_producto("M002")
-        )
-        print("Operaciones mixtas completadas.")
-        print(f" - Update devolvió: {resultado[0]}")
-        print(f" - Get devolvió: {resultado[1]}")
-    except Exception as e:
-        print("Error en operaciones mixtas.")
-
-asyncio.run(prueba_de_estres())
-
-# Se hacen las llamadas a las corrutinas creadas
+        # Para llamar a la función de obtener producto
+        producto = await obtener_producto(codigo_producto)
+        return producto
+    except KeyError:
+        raise HTTPException(status_code=404, detail="El producto soliciato no existe en la BD.")
