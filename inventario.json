@@ -1,17 +1,21 @@
 [
     {
-        "codigo": "M001",
-        "nombre": "Llanta trasera",
-        "stock": 8
-    },
-    {
-        "codigo": "M002",
-        "nombre": "Filtro de aire",
-        "stock": 25
-    },
-    {
         "codigo": "M003",
-        "nombre": "Buj\u00eda",
-        "stock": 50
+        "nombre": "Buj\u00eda NGK",
+        "categoria": "Ignici\u00f3n",
+        "precio": 50000.0,
+        "stock": 15,
+        "compatible_con": [
+            "Motos",
+            "Carros"
+        ]
+    },
+    {
+        "codigo": "M001",
+        "nombre": "Llanta Pirelli Diablo Rosso 4",
+        "categoria": "Llantas",
+        "precio": 850000.0,
+        "stock": 10,
+        "compatible_con": "Rin 17"
     }
 ]
