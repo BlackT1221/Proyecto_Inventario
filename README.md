@@ -1,142 +1,252 @@
-## Reto para los aprendices
+# Laboratorio Práctico: Sistema de Órdenes de Servicio
 
-La API ya cuenta con una estructura base funcional. En este laboratorio, deberán ampliar su funcionalidad agregando **tres nuevos endpoints HTTP de tipo `GET`** en el archivo `main.py`.
+## Contexto para los aprendices
 
-El objetivo es combinar conceptos básicos de programación en Python, manipulación de datos y desarrollo de APIs con **FastAPI**.
+Vamos a construir el módulo de recepción y seguimiento de motocicletas de un taller mecánico.
 
-Los nuevos endpoints deberán trabajar directamente con la información almacenada en el archivo `inventario.json`.
+El objetivo es desarrollar una API que permita:
 
----
+- Registrar las motocicletas que ingresan al taller.
+- Consultar las órdenes de servicio existentes.
+- Actualizar el estado de reparación.
+- Registrar el costo asociado a la reparación.
+- Aplicar reglas de negocio antes de modificar la información almacenada.
 
-## 1. Ruta de Categorías
+Para la persistencia de los datos se utilizará un archivo JSON.
 
-Crear el siguiente endpoint:
+## Requisitos generales
 
-```python
-@app.get("/categorias")
-```
+El ejercicio debe cumplir con las siguientes condiciones:
 
-### Requerimiento
-
-La ruta debe:
-
-1. Leer el archivo `inventario.json`.
-2. Recorrer los productos registrados.
-3. Extraer el valor del campo `categoria` de cada producto.
-4. Eliminar las categorías duplicadas.
-5. Devolver una lista con las categorías disponibles.
-
-### Pista
-
-Utilizar un `set` de Python para evitar elementos repetidos.
-
-Ejemplo conceptual:
-
-```python
-categorias = set()
-```
-
-El resultado debe contener cada categoría una sola vez.
+- Crear un archivo `taller.json` para almacenar las órdenes.
+- Implementar **únicamente 3 endpoints**.
+- Utilizar FastAPI.
+- Utilizar esquemas Pydantic para validar los datos de entrada.
+- Mantener la información persistida en `taller.json`.
+- Implementar correctamente las reglas de negocio correspondientes al endpoint `PUT`.
 
 ---
 
-## 2. Ruta de Stock Crítico
+# 1. Crear Orden de Ingreso
 
-Crear el siguiente endpoint:
-
-```python
-@app.get("/alertas/stock")
-```
-
-### Requerimiento
-
-La ruta debe:
-
-1. Leer el archivo `inventario.json`.
-2. Revisar el stock de cada producto.
-3. Identificar únicamente los productos cuyo stock sea **menor o igual a 3**.
-4. Devolver una lista con los productos que cumplen esta condición.
-
-La condición de filtrado debe ser equivalente a:
-
-```python
-stock <= 3
-```
-
-Los productos cuyo stock sea superior a `3` no deben aparecer en la respuesta.
-
----
-
-## 3. Ruta de Búsqueda Avanzada
-
-Crear el siguiente endpoint:
-
-```python
-@app.get("/productos/buscar/{palabra_clave}")
-```
-
-### Requerimiento
-
-La ruta debe recibir una palabra clave directamente desde la URL y devolver todos los productos cuyo **nombre contenga dicha palabra clave**.
-
-La búsqueda debe ser **insensible a mayúsculas y minúsculas**.
-
-Por ejemplo, las siguientes búsquedas deberían comportarse de la misma manera:
+### Endpoint
 
 ```text
-/productos/buscar/arroz
-/productos/buscar/ARROZ
-/productos/buscar/ArRoZ
+POST /ordenes
 ```
 
-### Pista
+### Esquema de entrada: `OrdenCreate`
 
-Utilizar el método `.lower()` para convertir tanto el nombre del producto como la palabra clave a minúsculas antes de realizar la comparación.
+El cliente debe enviar los siguientes datos:
 
-Conceptualmente:
+| Campo | Tipo | Restricción |
+|---|---|---|
+| `placa` | `string` | Máximo 6 caracteres |
+| `modelo` | `string` | Requerido |
+| `falla_reportada` | `string` | Requerido |
 
-```python
-nombre.lower()
-palabra_clave.lower()
+Ejemplo conceptual de los datos enviados:
+
+```json
+{
+    "placa": "ABC123",
+    "modelo": "2024",
+    "falla_reportada": "No enciende"
+}
 ```
 
-La comprobación puede realizarse mediante una condición de pertenencia:
+### Lógica del backend
 
-```python
-palabra_clave.lower() in nombre.lower()
+El sistema debe recibir los datos enviados por el cliente y agregar automáticamente los siguientes campos antes de guardar la orden en `taller.json`:
+
+```json
+{
+    "estado": "En diagnóstico",
+    "costo_reparacion": 0
+}
+```
+
+Por lo tanto, toda nueva orden debe comenzar con:
+
+- **Estado:** `"En diagnóstico"`
+- **Costo de reparación:** `0`
+
+### Validación de motocicleta existente
+
+Antes de crear una nueva orden, el backend debe consultar `taller.json` y verificar si ya existe una motocicleta con la misma placa.
+
+Si la placa existe y su estado es diferente de:
+
+```text
+Entregada
+```
+
+el sistema debe rechazar la solicitud con un error HTTP **400**.
+
+El mensaje debe indicar:
+
+```text
+La moto ya se encuentra en el taller
+```
+
+Una motocicleta cuyo estado sea `"Entregada"` sí puede volver a ingresar al sistema mediante una nueva orden.
+
+---
+
+# 2. Consultar Órdenes
+
+### Endpoint
+
+```text
+GET /ordenes
+```
+
+### Lógica del backend
+
+El endpoint debe:
+
+1. Leer el archivo `taller.json`.
+2. Obtener todas las órdenes de servicio almacenadas.
+3. Devolver la lista completa.
+4. Incluir todos los campos registrados para cada orden.
+
+Cada orden debe contener información equivalente a:
+
+```json
+{
+    "placa": "ABC123",
+    "modelo": "2024",
+    "falla_reportada": "No enciende",
+    "estado": "En diagnóstico",
+    "costo_reparacion": 0
+}
+```
+
+La respuesta debe incluir todas las órdenes almacenadas en el archivo.
+
+---
+
+# 3. Actualizar Diagnóstico y Facturación
+
+### Endpoint
+
+```text
+PUT /ordenes/{placa}
+```
+
+Este endpoint contiene las principales reglas de negocio del ejercicio.
+
+### Esquema de entrada: `OrdenUpdate`
+
+El cliente debe enviar:
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `nuevo_estado` | `string` | Nuevo estado de la orden |
+| `costo_reparacion` | `float` | Costo correspondiente a la reparación |
+
+Ejemplo:
+
+```json
+{
+    "nuevo_estado": "Reparada",
+    "costo_reparacion": 150000
+}
+```
+
+## Reglas de negocio
+
+### Regla 1: Placa inexistente
+
+Si la placa recibida en la URL no existe en `taller.json`, el backend debe responder con un error HTTP:
+
+```text
+404 Not Found
+```
+
+La operación no debe modificar ninguna orden existente.
+
+---
+
+### Regla 2: Validación del costo al marcar como reparada
+
+Si el cliente envía:
+
+```text
+nuevo_estado = "Reparada"
+```
+
+el costo de reparación debe ser **mayor que 0**.
+
+No se permite marcar una motocicleta como reparada sin asignarle un costo de reparación.
+
+Por ejemplo, esta solicitud debe ser rechazada:
+
+```json
+{
+    "nuevo_estado": "Reparada",
+    "costo_reparacion": 0
+}
+```
+
+El backend debe generar un error HTTP **400** mediante `HTTPException` con el siguiente mensaje:
+
+```text
+No se puede marcar como reparada sin asignar un costo de reparación
+```
+
+La misma validación debe impedir valores negativos cuando la orden se marca como reparada.
+
+---
+
+### Regla 3: Actualización de la orden
+
+Si la placa existe y todas las validaciones son satisfactorias, el backend debe actualizar en `taller.json`:
+
+- El `estado`.
+- El `costo_reparacion`.
+
+Por ejemplo, una actualización válida:
+
+```json
+{
+    "nuevo_estado": "Reparada",
+    "costo_reparacion": 150000
+}
+```
+
+Debe producir una orden equivalente a:
+
+```json
+{
+    "placa": "ABC123",
+    "modelo": "2024",
+    "falla_reportada": "No enciende",
+    "estado": "Reparada",
+    "costo_reparacion": 150000
+}
 ```
 
 ---
 
-## Resumen de endpoints
+# Resumen de endpoints
 
 | Método | Endpoint | Funcionalidad |
 |---|---|---|
-| `GET` | `/categorias` | Devuelve las categorías disponibles sin duplicados |
-| `GET` | `/alertas/stock` | Devuelve productos con stock menor o igual a 3 |
-| `GET` | `/productos/buscar/{palabra_clave}` | Busca productos por nombre sin distinguir mayúsculas/minúsculas |
+| `POST` | `/ordenes` | Crear una nueva orden de ingreso |
+| `GET` | `/ordenes` | Consultar todas las órdenes |
+| `PUT` | `/ordenes/{placa}` | Actualizar estado y costo de reparación |
 
-## Criterios de implementación
+## Reglas principales
 
-La solución debe cumplir con los siguientes criterios:
-
-- Los tres endpoints deben implementarse en `main.py`.
-- Todos deben utilizar el método HTTP `GET`.
-- La información debe obtenerse desde `inventario.json`.
-- `/categorias` debe eliminar categorías duplicadas.
-- `/alertas/stock` debe devolver únicamente productos con `stock <= 3`.
-- `/productos/buscar/{palabra_clave}` debe realizar una búsqueda parcial por nombre.
-- La búsqueda de productos debe ser independiente de mayúsculas y minúsculas.
-- Las respuestas deben ser compatibles con el funcionamiento habitual de FastAPI.
-
-## Objetivo de aprendizaje
-
-Al finalizar el laboratorio, el aprendiz deberá ser capaz de:
-
-- Crear rutas dinámicas utilizando FastAPI.
-- Leer y procesar información almacenada en archivos JSON.
-- Filtrar colecciones de datos mediante condiciones.
-- Eliminar valores duplicados utilizando estructuras de datos de Python.
-- Trabajar con parámetros dinámicos en las rutas.
-- Implementar búsquedas de texto sin distinción entre mayúsculas y minúsculas.
-- Integrar lógica básica de programación dentro de endpoints de una API.
+| Situación | Comportamiento esperado |
+|---|---|
+| Nueva motocicleta | Crear orden con estado `"En diagnóstico"` y costo `0` |
+| Placa existente no entregada | HTTP `400` |
+| Placa existente con estado `"Entregada"` | Permitir nuevo ingreso |
+| Consulta de órdenes | Devolver todas las órdenes |
+| Placa inexistente en `PUT` | HTTP `404` |
+| Estado `"Reparada"` con costo `0` | HTTP `400` |
+| Estado `"Reparada"` con costo negativo | Rechazar la operación |
+| Estado `"Reparada"` con costo mayor a `0` | Permitir actualización |
+| Actualización válida | Guardar cambios en `taller.json` |
