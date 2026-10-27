@@ -1,21 +1,14 @@
+
 [
     {
-        "codigo": "M003",
-        "nombre": "Buj\u00eda NGK",
-        "categoria": "Ignici\u00f3n",
-        "precio": 50000.0,
-        "stock": 15,
-        "compatible_con": [
-            "Motos",
-            "Carros"
-        ]
+        "placa": "abc-123"
     },
     {
-        "codigo": "M001",
-        "nombre": "Llanta Pirelli Diablo Rosso 4",
-        "categoria": "Llantas",
-        "precio": 850000.0,
-        "stock": 10,
-        "compatible_con": "Rin 17"
+        "placa": "xyz-789"
+    },
+    {
+        "placa": "www-000",
+        "estado_orden": "En reparación",
+        "nuevo_estado": ""
     }
 ]

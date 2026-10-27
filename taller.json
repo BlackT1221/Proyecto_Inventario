@@ -1,0 +1,10 @@
+[
+    {
+        "placa": "SXR84F",
+        "modelo": "Dominar 400 UG",
+        "falla_reportada": "string",
+        "estado": "En diagn\u00f3stico",
+        "costo_reparacion": 0.0,
+        "nuevo_estado": "En revisi\u00f3n"
+    }
+]

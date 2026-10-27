@@ -1,66 +1,84 @@
-from fastapi import FastAPI, HTTPException, Request #importo mi framework
-from database import leer_base_datos, obtener_producto, guardar_base_datos
-from schemas import ProductoCreate
+from fastapi import FastAPI, HTTPException
+from schemas import OrdenCreate, OrdenPatch, OrdenUpdate
+from database import leer_base_datos, guardar_base_datos
 
-# Inicializar la aplicación
-apiRest = FastAPI(
-    title="API inventarios SENA",
-    description="Mi primera API asíncrona",
-    version="1.0.0"
+app = FastAPI(
+    title="API Recepción Taller Mecánico",
+    description="Sistema de triaje y facturación",
+    version="1.0"
 )
 
-# Nuestro primer endpoint
-@apiRest.get("/") # Decorador -> Función que recibe como parámetro otra función
-async def ruta_principal():
-    return {"mensaje": "¡Bienvenido a mi primera API Rest!"}
-
-@apiRest.get("/estado")
-async def estado_servidor():
-    return {"status": "En línea", "servicios": "Operativos sin ningun invonveniente"}
-
-@apiRest.get("/productos")
-async def listar_productos():
+@app.post("/ordenes", status_code=201)
+async def crear_orden(orden: OrdenCreate):
     datos = await leer_base_datos()
-    return {"cantidad": len(datos), "productos": datos}
-
-@apiRest.get("/productos/{codigo_producto}")
-async def buscar_un_producto(codigo_producto: str):
-    try:
-        # Para llamar a la función de obtener producto
-        producto = await obtener_producto(codigo_producto)
-        return producto
-    except KeyError:
-        raise HTTPException(status_code=404, detail="El producto soliciato no existe en la BD.")
-
-@apiRest.post("/productos", status_code=201)
-async def registrar_nuevo_producto(producto: ProductoCreate):
-    datos = await leer_base_datos()
-
-    # 1. Validar que el producto no exista
-    for dato in datos:
-        if dato["codigo"] == producto.codigo:
-            raise HTTPException(status_code=400, detail="El código de producto ya existe.")
-
-    # 2. Convertir la clase a un diccionario
-    nuevo_producto = producto.model_dump()
-
-    # 3. Guardar
-    datos.append(nuevo_producto)
+    
+    # Regla de Negocio: Validar que la placa no esté ya en el taller
+    for item in datos:
+        if item["placa"] == orden.placa and item["estado"] != "Entregada":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"La moto con placa {orden.placa} ya se encuentra en el taller ({item['estado']})."
+            )
+            
+    nueva_orden = orden.model_dump()
+    nueva_orden["estado"] = "En diagnóstico"
+    nueva_orden["costo_reparacion"] = 0.0
+    
+    datos.append(nueva_orden)
     await guardar_base_datos(datos)
+    
+    return {"mensaje": "Orden creada exitosamente", "orden": nueva_orden}
 
-    return {"mensaje": "Producto registrado correctamente", "producto": nuevo_producto}
-
-# Put, actulizar inventario
-@apiRest.put("/productos/{codigo_producto}")
-async def actulizar_producto(codigo_producto: str, producto_actualizado: ProductoCreate):
+@app.get("/ordenes")
+async def obtener_ordenes():
     datos = await leer_base_datos()
-    for posicion, dato in enumerate(datos):
-        if dato["codigo"] == codigo_producto:
-            # Reemplazamos los datos manteniendo el codigo
-            datos[posicion] = producto_actualizado.model_dump()
-            datos[posicion]["codigo"] = codigo_producto
+    return {"total_ordenes": len(datos), "ordenes": datos}
+
+@app.put("/ordenes/{placa}")
+async def actualizar_orden(placa: str, orden_update: OrdenUpdate):
+        
+    datos = await leer_base_datos()
+    
+    for i, item in enumerate(datos):
+        if item["placa"] == placa:
+            
+            datos[i]["estado"] = orden_update.nuevo_estado
+            datos[i]["costo_reparacion"] = orden_update.costo_reparacion
+            
+            await guardar_base_datos(datos)
+            return {"mensaje": "Orden actualizada correctamente", "orden": datos[i]}
+            
+    raise HTTPException(status_code=404, detail="Orden no encontrada")
+
+@app.delete("/ordenes/{placa}", status_code=204)
+async def eliminar_orden(placa: str):
+    datos = await leer_base_datos()
+
+    # for orden in datos:
+    #     if orden["placa"] != placa:
+    #         datos_filtrados.append(orden)
+
+    datos_filtrados = [orden for orden in datos if orden["placa"] != placa]
+
+    if len(datos) == len(datos_filtrados):
+        raise HTTPException(status_code=404, detail="La orden no existe.")
+
+    await guardar_base_datos(datos_filtrados)
+
+    return None
+
+@app.patch("/ordenes/{placa}")
+async def actualizacion_parcial(placa: str, orden_patch: OrdenPatch):
+    datos = await leer_base_datos()
+
+    for i, orden in enumerate(datos):
+        if orden["placa"] == placa:
+            datos_a_actualizar = orden_patch.model_dump(exclude_unset=True)
+
+            # Actualizamos solo con los datos que llegaron
+            datos[i].update(datos_a_actualizar)
 
             await guardar_base_datos(datos)
-            return {"mensaje": "Producto actualizado", "producto": datos[posicion]}
-        
-    raise HTTPException(status_code=404, detail="Producto no encontrado")
+            return {"mesaje": "La orden ha sido actualizada con los siguientes datos", "orden": datos[i]}
+
+    raise HTTPException(status_code=404, detail="La orden no existe.")
