@@ -32,7 +32,7 @@ async def crear_orden(orden: OrdenCreate):
     nueva_orden["estado"] = "En diagnóstico"
     nueva_orden["costo_reparacion"] = 0.0
     
-    datos.routerend(nueva_orden)
+    datos.append(nueva_orden)
     await guardar_base_datos(datos)
     
     return {"mensaje": "Orden creada exitosamente", "orden": nueva_orden}
@@ -78,7 +78,7 @@ async def eliminar_orden(placa: str):
 
     # for orden in datos:
     #     if orden["placa"] != placa:
-    #         datos_filtrados.routerend(orden)
+    #         datos_filtrados.append(orden)
 
     datos_filtrados = [orden for orden in datos if orden["placa"] != placa]
 
