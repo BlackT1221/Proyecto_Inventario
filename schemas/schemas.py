@@ -24,3 +24,11 @@ class OrdenPatch(BaseModel):
     nuevo_estado: Optional[str] = Field(None, description="Ej: En diagnóstico, Reparada, Entregada")
     costo_reparacion: Optional[float] = Field(None, ge=0)
     falla_reportada: Optional[str] = None
+
+class OrdenResponse(BaseModel):
+    id: int
+    estado: str
+    costo_reparacion: float
+
+    # Para que entienda ORM
+    model_config = {"from_attributes": True}
