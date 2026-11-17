@@ -3,11 +3,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from core.database import obtener_bd
 from models.orden import Orden as OrdenModel
-from schemas.schemas import OrdenCreate
+from schemas.ordenes import OrdenCreate
 from typing import Optional
-from schemas.schemas import OrdenCreate, OrdenPatch, OrdenUpdate, OrdenResponse
+from schemas.ordenes import OrdenCreate, OrdenPatch, OrdenUpdate, OrdenResponse
 from database import leer_base_datos, guardar_base_datos
 from dependencias import verificar_api_key, parametros_paginacion
+from sqlalchemy.orm import joinedload
 
 router = APIRouter(prefix="/ordenes", tags=["Gestionar ordenes"])
 
@@ -17,7 +18,7 @@ async def obtener_ordenes(
     paginacion: dict = Depends(parametros_paginacion), 
     db: AsyncSession = Depends(obtener_bd)
 ):
-    sentencia = select(OrdenModel)
+    sentencia = select(OrdenModel).options(joinedload(OrdenModel.mecanico))
     resultado = await db.execute(sentencia)
     ordenes = resultado.scalars().all() # Traer los objetos (No "lenguaje" sql)
 
@@ -29,7 +30,7 @@ async def obtener_orden_por_id(
     db: AsyncSession = Depends(obtener_bd)
 ):
     # SELECT * FROM ordenes WHERE id = orden_id
-    sentencia = select(OrdenModel).where(OrdenModel.id == orden_id)
+    sentencia = select(OrdenModel).options(joinedload(OrdenModel.mecanico)).where(OrdenModel.id == orden_id)
     resultado = await db.execute(sentencia)
 
     orden = resultado.scalar_one_or_none()
@@ -40,7 +41,7 @@ async def obtener_orden_por_id(
 
 @router.post("/", status_code=201)
 async def crear_orden(
-    orden: OrdenCreate, 
+    orden: OrdenCreate,
     api_key: str = Depends(verificar_api_key), 
     db: AsyncSession = Depends(obtener_bd)
 ):
@@ -59,50 +60,80 @@ async def crear_orden(
     return {"mensaje": "Orden creada", "orden": nueva_orden}
 
 @router.put("/{placa}")
-async def actualizar_orden(placa: str, orden_update: OrdenUpdate):
-        
-    datos = await leer_base_datos()
-    
-    for i, item in enumerate(datos):
-        if item["placa"] == placa:
-            
-            datos[i]["estado"] = orden_update.nuevo_estado
-            datos[i]["costo_reparacion"] = orden_update.costo_reparacion
-            
-            await guardar_base_datos(datos)
-            return {"mensaje": "Orden actualizada correctamente", "orden": datos[i]}
-            
-    raise HTTPException(status_code=404, detail="Orden no encontrada")
+async def actualizar_orden(
+    placa: str, 
+    orden_update: OrdenUpdate, 
+    db: AsyncSession = Depends(obtener_bd)
+):
+    # 1. Buscamos la orden en la base de datos
+    sentencia = select(OrdenModel).where(OrdenModel.placa == placa)
+    resultado = await db.execute(sentencia)
+    orden = resultado.scalar_one_or_none()
+
+    if not orden:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+
+    # 2. Modificamos los atributos del objeto ORM directamente
+    orden.estado = orden_update.nuevo_estado
+    orden.costo_reparacion = orden_update.costo_reparacion
+
+    # 3. Guardamos cambios y refrescamos el objeto
+    try:
+        await db.commit()
+        await db.refresh(orden)
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Error al actualizar la orden en la BD")
+
+    return {"mensaje": "Orden actualizada correctamente", "orden": orden}
 
 @router.delete("/{placa}", status_code=204)
-async def eliminar_orden(placa: str):
-    datos = await leer_base_datos()
+async def eliminar_orden(
+    placa: str, 
+    db: AsyncSession = Depends(obtener_bd)
+):
+    sentencia = select(OrdenModel).where(OrdenModel.placa == placa)
+    resultado = await db.execute(sentencia)
+    orden = resultado.scalar_one_or_none()
 
-    # for orden in datos:
-    #     if orden["placa"] != placa:
-    #         datos_filtrados.append(orden)
-
-    datos_filtrados = [orden for orden in datos if orden["placa"] != placa]
-
-    if len(datos) == len(datos_filtrados):
+    if not orden:
         raise HTTPException(status_code=404, detail="La orden no existe.")
 
-    await guardar_base_datos(datos_filtrados)
+    # Eliminamos el registro de la sesión y confirmamos
+    await db.delete(orden)
+    await db.commit()
 
     return None
 
 @router.patch("/{placa}")
-async def actualizacion_parcial(placa: str, orden_patch: OrdenPatch):
-    datos = await leer_base_datos()
+async def actualizacion_parcial(
+    placa: str, 
+    orden_patch: OrdenPatch, 
+    db: AsyncSession = Depends(obtener_bd)
+):
+    sentencia = select(OrdenModel).where(OrdenModel.placa == placa)
+    resultado = await db.execute(sentencia)
+    orden = resultado.scalar_one_or_none()
 
-    for i, orden in enumerate(datos):
-        if orden["placa"] == placa:
-            datos_a_actualizar = orden_patch.model_dump(exclude_unset=True)
+    if not orden:
+        raise HTTPException(status_code=404, detail="La orden no existe.")
 
-            # Actualizamos solo con los datos que llegaron
-            datos[i].update(datos_a_actualizar)
+    # Extraemos solo los campos que el cliente envió en el JSON
+    datos_a_actualizar = orden_patch.model_dump(exclude_unset=True)
 
-            await guardar_base_datos(datos)
-            return {"mesaje": "La orden ha sido actualizada con los siguientes datos", "orden": datos[i]}
+    # Si enviaron 'nuevo_estado', lo renombramos a 'estado' para que coincida con la columna SQL
+    if "nuevo_estado" in datos_a_actualizar:
+        datos_a_actualizar["estado"] = datos_a_actualizar.pop("nuevo_estado")
 
-    raise HTTPException(status_code=404, detail="La orden no existe.")
+    # Aplicamos cada cambio dinámicamente al objeto de SQLAlchemy
+    for campo, valor in datos_a_actualizar.items():
+        setattr(orden, campo, valor)
+
+    try:
+        await db.commit()
+        await db.refresh(orden)
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Error al aplicar actualización parcial")
+
+    return {"mensaje": "La orden ha sido actualizada", "orden": orden}

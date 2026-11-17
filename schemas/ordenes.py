@@ -6,6 +6,7 @@ class OrdenCreate(BaseModel):
     placa: str = Field(..., min_length=5, max_length=6, description="Placa de la moto (sin espacios)")
     modelo: str = Field(..., description="Marca y modelo. Ej: Bajaj Dominar 400")
     falla_reportada: str = Field(..., description="Descripción del problema por el cliente")
+    mecanico_id: int
 
 # Lo que entra cuando el mecánico actualiza la orden
 class OrdenUpdate(BaseModel):
@@ -25,10 +26,12 @@ class OrdenPatch(BaseModel):
     costo_reparacion: Optional[float] = Field(None, ge=0)
     falla_reportada: Optional[str] = None
 
-class OrdenResponse(BaseModel):
+class OrdenResponse(OrdenCreate):
     id: int
     estado: str
     costo_reparacion: float
 
     # Para que entienda ORM
     model_config = {"from_attributes": True}
+
+    
