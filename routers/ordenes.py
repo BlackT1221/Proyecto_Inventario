@@ -3,8 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from core.database import obtener_bd
 from models.orden import Orden as OrdenModel
+from models.mecanico import Mecanico as MecanicoModel
 from schemas.ordenes import OrdenCreate
-from typing import Optional
+from typing import Optional, List
 from schemas.ordenes import OrdenCreate, OrdenPatch, OrdenUpdate, OrdenResponse
 from database import leer_base_datos, guardar_base_datos
 from dependencias import verificar_api_key, parametros_paginacion
@@ -12,7 +13,7 @@ from sqlalchemy.orm import joinedload
 
 router = APIRouter(prefix="/ordenes", tags=["Gestionar ordenes"])
 
-@router.get("/")
+@router.get("/", response_model=List[OrdenResponse])
 async def obtener_ordenes(
     estado: Optional[str] = None,
     paginacion: dict = Depends(parametros_paginacion), 
@@ -22,7 +23,7 @@ async def obtener_ordenes(
     resultado = await db.execute(sentencia)
     ordenes = resultado.scalars().all() # Traer los objetos (No "lenguaje" sql)
 
-    return {"total": len(ordenes), "ordenes": ordenes}
+    return ordenes
 
 @router.get("/{orden_id}", response_model=OrdenResponse)
 async def obtener_orden_por_id(
@@ -45,6 +46,17 @@ async def crear_orden(
     api_key: str = Depends(verificar_api_key), 
     db: AsyncSession = Depends(obtener_bd)
 ):
+
+    consulta_mec = select(MecanicoModel).where(MecanicoModel.id == orden.mecanico_id)
+    res_mec = await db.execute(consulta_mec)
+    mecanico_db = res_mec.scalar_one_or_none()
+
+    if not mecanico_db or not mecanico_db.activo:
+        raise HTTPException(
+            status_code=400,
+            datail=f"El mecanico con el ID {orden.mecanico_id} no existe o está inactivo."
+        )
+    
     nueva_orden = OrdenModel(**orden.model_dump())
 
     db.add(nueva_orden)
@@ -60,36 +72,24 @@ async def crear_orden(
     return {"mensaje": "Orden creada", "orden": nueva_orden}
 
 @router.put("/{placa}")
-async def actualizar_orden(
-    placa: str, 
-    orden_update: OrdenUpdate, 
-    db: AsyncSession = Depends(obtener_bd)
-):
-    # 1. Buscamos la orden en la base de datos
-    sentencia = select(OrdenModel).where(OrdenModel.placa == placa)
-    resultado = await db.execute(sentencia)
-    orden = resultado.scalar_one_or_none()
-
-    if not orden:
-        raise HTTPException(status_code=404, detail="Orden no encontrada")
-
-    # 2. Modificamos los atributos del objeto ORM directamente
-    orden.estado = orden_update.nuevo_estado
-    orden.costo_reparacion = orden_update.costo_reparacion
-
-    # 3. Guardamos cambios y refrescamos el objeto
-    try:
-        await db.commit()
-        await db.refresh(orden)
-    except Exception:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Error al actualizar la orden en la BD")
-
-    return {"mensaje": "Orden actualizada correctamente", "orden": orden}
+async def actualizar_orden(placa: str, orden_update: OrdenUpdate):
+        
+    datos = await leer_base_datos()
+    
+    for i, item in enumerate(datos):
+        if item["placa"] == placa:
+            
+            datos[i]["estado"] = orden_update.nuevo_estado
+            datos[i]["costo_reparacion"] = orden_update.costo_reparacion
+            
+            await guardar_base_datos(datos)
+            return {"mensaje": "Orden actualizada correctamente", "orden": datos[i]}
+            
+    raise HTTPException(status_code=404, detail="Orden no encontrada")
 
 @router.delete("/{placa}", status_code=204)
 async def eliminar_orden(
-    placa: str, 
+    placa: str,
     db: AsyncSession = Depends(obtener_bd)
 ):
     sentencia = select(OrdenModel).where(OrdenModel.placa == placa)
@@ -97,35 +97,31 @@ async def eliminar_orden(
     orden = resultado.scalar_one_or_none()
 
     if not orden:
-        raise HTTPException(status_code=404, detail="La orden no existe.")
+        raise HTTPException(status_code=404, detail="La orden no existe")
 
-    # Eliminamos el registro de la sesión y confirmamos
     await db.delete(orden)
     await db.commit()
-
     return None
 
 @router.patch("/{placa}")
 async def actualizacion_parcial(
     placa: str, 
-    orden_patch: OrdenPatch, 
+    orden_patch: OrdenPatch,
     db: AsyncSession = Depends(obtener_bd)
 ):
+    # SELECT * FROM ordenes WHERE placa == placa
     sentencia = select(OrdenModel).where(OrdenModel.placa == placa)
     resultado = await db.execute(sentencia)
     orden = resultado.scalar_one_or_none()
 
     if not orden:
-        raise HTTPException(status_code=404, detail="La orden no existe.")
+        raise HTTPException(status_code=404, detail="La orden no existe")
 
-    # Extraemos solo los campos que el cliente envió en el JSON
     datos_a_actualizar = orden_patch.model_dump(exclude_unset=True)
 
-    # Si enviaron 'nuevo_estado', lo renombramos a 'estado' para que coincida con la columna SQL
     if "nuevo_estado" in datos_a_actualizar:
         datos_a_actualizar["estado"] = datos_a_actualizar.pop("nuevo_estado")
 
-    # Aplicamos cada cambio dinámicamente al objeto de SQLAlchemy
     for campo, valor in datos_a_actualizar.items():
         setattr(orden, campo, valor)
 
@@ -134,6 +130,6 @@ async def actualizacion_parcial(
         await db.refresh(orden)
     except Exception:
         await db.rollback()
-        raise HTTPException(status_code=500, detail="Error al aplicar actualización parcial")
+        raise HTTPException(status_code=500, detail="Error aplicando la actualización parcial.")
 
-    return {"mensaje": "La orden ha sido actualizada", "orden": orden}
+    return {"mensaje": "La orden ha sido actualizada con éxito", "orden": orden}
