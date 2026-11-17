@@ -26,7 +26,7 @@ class OrdenPatch(BaseModel):
     costo_reparacion: Optional[float] = Field(None, ge=0)
     falla_reportada: Optional[str] = None
 
-class OrdenResponse(OrdenCreate):
+class OrdenResponse(BaseModel):
     id: int
     estado: str
     costo_reparacion: float
