@@ -7,7 +7,6 @@ from models.mecanico import Mecanico as MecanicoModel
 from schemas.ordenes import OrdenCreate
 from typing import Optional, List
 from schemas.ordenes import OrdenCreate, OrdenPatch, OrdenUpdate, OrdenResponse
-from database import leer_base_datos, guardar_base_datos
 from dependencias import verificar_api_key, parametros_paginacion
 from sqlalchemy.orm import joinedload
 
@@ -70,22 +69,6 @@ async def crear_orden(
     await db.refresh(nueva_orden)
 
     return {"mensaje": "Orden creada", "orden": nueva_orden}
-
-@router.put("/{placa}")
-async def actualizar_orden(placa: str, orden_update: OrdenUpdate):
-        
-    datos = await leer_base_datos()
-    
-    for i, item in enumerate(datos):
-        if item["placa"] == placa:
-            
-            datos[i]["estado"] = orden_update.nuevo_estado
-            datos[i]["costo_reparacion"] = orden_update.costo_reparacion
-            
-            await guardar_base_datos(datos)
-            return {"mensaje": "Orden actualizada correctamente", "orden": datos[i]}
-            
-    raise HTTPException(status_code=404, detail="Orden no encontrada")
 
 @router.delete("/{placa}", status_code=204)
 async def eliminar_orden(
