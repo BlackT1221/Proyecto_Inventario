@@ -16,3 +16,4 @@ class Orden(Base):
     mecanico_id = Column(Integer, ForeignKey("mecanicos.id"), nullable=True)
 
     mecanico = relationship("Mecanico", back_populates="ordenes")
+    repuestos_usados = relationship("OrdenRepuesto", back_populates="orden", cascade="all, delete-orphan")

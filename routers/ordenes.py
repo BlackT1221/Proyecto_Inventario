@@ -4,9 +4,10 @@ from sqlalchemy.future import select
 from core.database import obtener_bd
 from models.orden import Orden as OrdenModel
 from models.mecanico import Mecanico as MecanicoModel
-from schemas.ordenes import OrdenCreate
+from models.repuesto import Repuesto as RepuestoModel
+from models.orden_repuesto import OrdenRepuesto as OrdenRepuestoModel
 from typing import Optional, List
-from schemas.ordenes import OrdenCreate, OrdenPatch, OrdenUpdate, OrdenResponse
+from schemas.ordenes import OrdenCreate, OrdenPatch, OrdenResponse, AgregarRepuestoOrden, RepuestoEnOrdenResponse
 from dependencias import verificar_api_key, parametros_paginacion
 from sqlalchemy.orm import joinedload
 
@@ -116,3 +117,51 @@ async def actualizacion_parcial(
         raise HTTPException(status_code=500, detail="Error aplicando la actualización parcial.")
 
     return {"mensaje": "La orden ha sido actualizada con éxito", "orden": orden}
+
+@router.post("/{orden_id}/repuestos", status_code=201, response_model=RepuestoEnOrdenResponse)
+async def agregar_repuesto_a_orden(
+    orden_id: int,
+    datos: AgregarRepuestoOrden,
+    db: AsyncSession = Depends(obtener_bd)
+):
+    # 1. Validar que la orden exista
+    res_orden = await db.execute(select(OrdenModel).where(OrdenModel.id == orden_id))
+    orden_db = res_orden.scalar_one_or_none()
+    if not orden_db:
+        raise HTTPException(status_code=404, detail="La orden de servicio no existe")
+
+    # 2. Validar que el repuesto exista
+    res_rep = await db.execute(select(RepuestoModel).where(RepuestoModel.id == datos.repuesto_id))
+    rep_db = res_rep.scalar_one_or_none()
+    if not rep_db:
+        raise HTTPException(status_code=404, detail="El repuesto no existe")
+
+    # 3. Validar stock
+    if rep_db.stock_actual < datos.cantidad:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Stock insuficiente. En almacen tengo: {rep_db.stock_actual} y se solicitaron: {datos.cantidad}"
+        )
+
+    # Operacion transaccional
+    rep_db.stock_actual -= datos.cantidad
+    subtotal = rep_db.precio_venta * datos.cantidad
+    orden_db.costo_reparacion += subtotal
+
+    detalle = OrdenRepuestoModel(
+        orden_id=orden_db.id,
+        repuesto_id=rep_db.id,
+        cantidad=datos.cantidad,
+        precio_unitario_historico=rep_db.precio_venta
+    )
+
+    db.add(detalle)
+
+    try:
+        await db.commit()
+        await db.refresh(detalle)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Error aplicando la actualización parcial.")
+
+    return detalle

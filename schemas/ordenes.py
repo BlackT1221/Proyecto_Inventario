@@ -45,3 +45,15 @@ class OrdenResponse(BaseModel):
 
     # Para que entienda ORM
     model_config = {"from_attributes": True}
+
+class AgregarRepuestoOrden(BaseModel):
+    repuesto_id: int
+    cantidad: int = Field(..., gt=0, description="Debe agregar al menos 1 unidad")
+
+class RepuestoEnOrdenResponse(BaseModel):
+    id: int
+    repuesto_id: int
+    cantidad: int
+    precio_unitario_historico: float
+
+    model_config = {"from_attributes": True}
