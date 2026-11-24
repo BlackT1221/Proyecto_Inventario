@@ -16,3 +16,11 @@ class OrdenRepuesto(Base):
     # Relaciones
     orden = relationship("Orden", back_populates="repuestos_usados")
     repuesto = relationship("Repuesto", back_populates="ordenes_asociadas")
+
+@property
+def nombre_repuesto(self) -> str:
+    return self.repuesto.nombre if self.repuesto else "Repuesto no disponible"
+
+@property
+def subtotal_linea(self) -> float:
+    return round(self.cantidad * self.precio_unitario_historico, 2)

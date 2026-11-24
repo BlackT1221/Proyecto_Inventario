@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from core.database import obtener_bd
+from models.factura import Factura as FacturaModel
 from models.orden import Orden as OrdenModel
 from models.mecanico import Mecanico as MecanicoModel
 from models.repuesto import Repuesto as RepuestoModel
@@ -9,7 +10,7 @@ from models.orden_repuesto import OrdenRepuesto as OrdenRepuestoModel
 from typing import Optional, List
 from schemas.ordenes import OrdenCreate, OrdenPatch, OrdenResponse, AgregarRepuestoOrden, RepuestoEnOrdenResponse
 from dependencias import verificar_api_key, parametros_paginacion
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 router = APIRouter(prefix="/ordenes", tags=["Gestionar ordenes"])
 
@@ -124,44 +125,134 @@ async def agregar_repuesto_a_orden(
     datos: AgregarRepuestoOrden,
     db: AsyncSession = Depends(obtener_bd)
 ):
-    # 1. Validar que la orden exista
     res_orden = await db.execute(select(OrdenModel).where(OrdenModel.id == orden_id))
     orden_db = res_orden.scalar_one_or_none()
     if not orden_db:
-        raise HTTPException(status_code=404, detail="La orden de servicio no existe")
+        raise HTTPException(status_code=404, detail="La orden de servicio no existe.")
 
-    # 2. Validar que el repuesto exista
-    res_rep = await db.execute(select(RepuestoModel).where(RepuestoModel.id == datos.repuesto_id))
-    rep_db = res_rep.scalar_one_or_none()
-    if not rep_db:
-        raise HTTPException(status_code=404, detail="El repuesto no existe")
-
-    # 3. Validar stock
-    if rep_db.stock_actual < datos.cantidad:
+    # CANDADO 3: Inmutabilidad de órdenes cerradas/facturadas
+    if orden_db.estado.lower() == "reparada":
         raise HTTPException(
             status_code=400,
-            detail=f"Stock insuficiente. En almacen tengo: {rep_db.stock_actual} y se solicitaron: {datos.cantidad}"
+            detail="No se pueden agregar repuestos a una orden ya cerrada/facturada."
         )
 
-    # Operacion transaccional
-    rep_db.stock_actual -= datos.cantidad
-    subtotal = rep_db.precio_venta * datos.cantidad
-    orden_db.costo_reparacion += subtotal
+    res_rep = await db.execute(select(RepuestoModel).where(RepuestoModel.id == datos.repuesto_id))
+    repuesto_db = res_rep.scalar_one_or_none()
+    if not repuesto_db:
+        raise HTTPException(status_code=404, detail="El repuesto no existe en inventario.")
+
+    if repuesto_db.stock_actual < datos.cantidad:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Stock insuficiente. Disponible: {repuesto_db.stock_actual}, solicitado: {datos.cantidad}"
+        )
+
+    repuesto_db.stock_actual -= datos.cantidad
+    orden_db.costo_reparacion += repuesto_db.precio_venta * datos.cantidad
 
     detalle = OrdenRepuestoModel(
         orden_id=orden_db.id,
-        repuesto_id=rep_db.id,
+        repuesto_id=repuesto_db.id,
         cantidad=datos.cantidad,
-        precio_unitario_historico=rep_db.precio_venta
+        precio_unitario_historico=repuesto_db.precio_venta
     )
-
     db.add(detalle)
 
     try:
         await db.commit()
         await db.refresh(detalle)
-    except Exception as e:
+    except Exception:
         await db.rollback()
-        raise HTTPException(status_code=500, detail="Error aplicando la actualización parcial.")
+        raise HTTPException(status_code=500, detail="Error procesando el movimiento de inventario.")
 
     return detalle
+
+
+@router.patch("/{orden_id}", response_model=OrdenResponse)
+async def actualizar_orden_parcial(
+    orden_id: int,
+    orden_patch: OrdenPatch,
+    db: AsyncSession = Depends(obtener_bd)
+):
+    # Cargamos la orden junto con su mecánico y sus repuestos usados
+    sentencia = (
+        select(OrdenModel)
+        .options(
+            joinedload(OrdenModel.mecanico),
+            selectinload(OrdenModel.repuestos_usados)
+        )
+        .where(OrdenModel.id == orden_id)
+    )
+    resultado = await db.execute(sentencia)
+    orden_db = resultado.scalar_one_or_none()
+
+    if not orden_db:
+        raise HTTPException(status_code=404, detail="Orden no encontrada.")
+
+    # CANDADO 1: Idempotencia / Bloqueo si ya está cerrada
+    if orden_db.estado.lower() == "reparada":
+        raise HTTPException(
+            status_code=400,
+            detail="La orden ya se encuentra marcada como Reparada y posee una factura emitida."
+        )
+
+    datos_actualizar = orden_patch.model_dump(exclude_unset=True)
+    mano_obra_enviada = datos_actualizar.pop("mano_obra", 0.0) or 0.0
+
+    if "falla_reportada" in datos_actualizar:
+        orden_db.falla_reportada = datos_actualizar["falla_reportada"]
+
+    nuevo_estado = datos_actualizar.get("nuevo_estado")
+    if nuevo_estado:
+        nuevo_estado_norm = nuevo_estado.strip().capitalize()
+
+        if nuevo_estado_norm == "Reparada":
+            # Verificar en BD que no exista factura previa
+            res_fact = await db.execute(
+                select(FacturaModel).where(FacturaModel.orden_id == orden_db.id)
+            )
+            if res_fact.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="Esta orden ya tiene una factura registrada.")
+
+            # Cálculo de repuestos desde la tabla intermedia
+            subtotal_repuestos = sum(
+                item.cantidad * item.precio_unitario_historico
+                for item in orden_db.repuestos_usados
+            )
+
+            # Sumamos la mano de obra al costo acumulado de la orden
+            orden_db.costo_reparacion = subtotal_repuestos + mano_obra_enviada
+
+            # CANDADO 2: No facturar órdenes en $0
+            if orden_db.costo_reparacion <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No se puede marcar como Reparada una orden con costo total en $0."
+                )
+
+            # CANDADO 4: Cálculo tributario (IVA 19%)
+            total_neto = orden_db.costo_reparacion
+            iva_calculado = round(total_neto * 0.19, 2)
+            total_con_iva = round(total_neto + iva_calculado, 2)
+
+            nueva_factura = FacturaModel(
+                orden_id=orden_db.id,
+                subtotal_repuestos=round(subtotal_repuestos, 2),
+                costo_mano_obra=round(mano_obra_enviada, 2),
+                iva=iva_calculado,
+                total_pagar=total_con_iva
+            )
+            db.add(nueva_factura)
+
+        orden_db.estado = nuevo_estado_norm
+
+    try:
+        # Commit atómico: actualiza la orden y crea la factura en una sola transacción
+        await db.commit()
+        await db.refresh(orden_db)
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Error al actualizar la orden y generar la factura.")
+
+    return orden_db

@@ -17,3 +17,4 @@ class Orden(Base):
 
     mecanico = relationship("Mecanico", back_populates="ordenes")
     repuestos_usados = relationship("OrdenRepuesto", back_populates="orden", cascade="all, delete-orphan")
+    factura = relationship("Factura", back_populates="orden", uselist=False, cascade="all, delete-orphan")

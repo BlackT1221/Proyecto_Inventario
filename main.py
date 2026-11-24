@@ -10,6 +10,8 @@ from models.repuesto import Repuesto
 from models.mecanico import Mecanico
 from models.orden_repuesto import OrdenRepuesto
 from core.database import engine, Base
+from models.factura import Factura
+from routers.facturas import router as router_facturas
 
 # Lifespan: código que se ejecuta antes de que FastAPI arranque
 @asynccontextmanager
@@ -35,6 +37,7 @@ app = FastAPI(
 app.include_router(router_mecanicos)
 app.include_router(router_ordenes)
 app.include_router(router_repuestos)
+app.include_router(router_facturas)
 
 @app.get("/prueba-yield")
 async def probar_yield(conexion: str = Depends(simular_base_datos)):

@@ -1,5 +1,6 @@
+import datetime
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional
+from typing import List, Optional
 
 # Lo que entra cuando llega la moto
 class OrdenCreate(BaseModel):
@@ -50,10 +51,39 @@ class AgregarRepuestoOrden(BaseModel):
     repuesto_id: int
     cantidad: int = Field(..., gt=0, description="Debe agregar al menos 1 unidad")
 
-class RepuestoEnOrdenResponse(BaseModel):
-    id: int
+class ItemFacturaResponse(BaseModel):
     repuesto_id: int
+    nombre_repuesto: str
     cantidad: int
     precio_unitario_historico: float
+    subtotal_linea: float
+
+    model_config = {"from_attributes": True}
+
+class MecanicoFacturaResponse(BaseModel):
+    id: int
+    nombre_completo: str
+    especialidad: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+class OrdenFacturaResponse(BaseModel):
+    id: int
+    placa: str
+    modelo: str
+    estado: str
+    mecanico: Optional[MecanicoFacturaResponse] = None
+    repuestos_usados: List[ItemFacturaResponse] = []
+
+    model_config = {"from_attributes": True}
+
+class FacturaDetalladaResponse(BaseModel):
+    id: int
+    fecha_emision: datetime
+    subtotal_repuestos: float
+    costo_mano_obra: float
+    iva: float
+    total_pagar: float
+    orden: OrdenFacturaResponse
 
     model_config = {"from_attributes": True}
