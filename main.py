@@ -16,16 +16,9 @@ from routers.facturas import router as router_facturas
 # Lifespan: código que se ejecuta antes de que FastAPI arranque
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Lo que pasa al encender el server
-    print("---Conectando con la bd y creando las tablas---")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    print("Base de datos lista.")
-
+    print("Iniciando API Taller mecánico (Gestionado por Alembic)")
     yield
-
-    print("Apagando el servidor y limpiando recursos.")
+    print("Apagando el servidor...")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

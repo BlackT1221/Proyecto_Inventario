@@ -1,5 +1,5 @@
 # models/mecanico.py
-from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy import Column, Float, Integer, String, Boolean
 from core.database import Base
 from sqlalchemy.orm import relationship
 
@@ -11,5 +11,6 @@ class Mecanico(Base):
     nombre_completo = Column(String(100), nullable=False)
     especialidad = Column(String(50))
     activo = Column(Boolean, default=True)
+    tarifa_dia = Column(Float, default=100000.0)
 
     ordenes = relationship("Orden", back_populates="mecanico") # back_populates crea el puente bidireccional

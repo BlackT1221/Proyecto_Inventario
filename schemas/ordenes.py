@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
 
@@ -85,5 +85,13 @@ class FacturaDetalladaResponse(BaseModel):
     iva: float
     total_pagar: float
     orden: OrdenFacturaResponse
+
+    model_config = {"from_attributes": True}
+
+class RepuestoEnOrdenResponse(BaseModel):
+    id: int
+    repuesto_id: int
+    cantidad: int
+    precio_unitario_historico: float
 
     model_config = {"from_attributes": True}
